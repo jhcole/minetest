@@ -477,6 +477,8 @@ private:
 	void peerAdded(con::Peer *peer);
 	void deletingPeer(con::Peer *peer, bool timeout);
 
+	void cacheLocalMedia();
+
 	void ReceiveAll();
 	void Receive();
 

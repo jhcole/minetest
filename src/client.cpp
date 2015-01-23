@@ -274,6 +274,10 @@ Client::Client(
 	m_removed_sounds_check_timer(0),
 	m_state(LC_Created)
 {
+
+	// Read Local Media
+	cacheLocalMedia();
+
 	/*
 		Add local player
 	*/
@@ -921,6 +925,87 @@ void Client::deletingPeer(con::Peer *peer, bool timeout)
 			<<"(timeout="<<timeout<<")"<<std::endl;
 }
 
+//FOZ
+void Client::cacheLocalMedia()
+{
+	// Collect all media file paths
+	const std::string client_path = porting::path_user + DIR_DELIM + "client";
+	std::list<std::string> paths;
+
+	paths.push_back(client_path + DIR_DELIM + "textures");
+	paths.push_back(client_path + DIR_DELIM + "sounds");
+	paths.push_back(client_path + DIR_DELIM + "media");
+	paths.push_back(client_path + DIR_DELIM + "models");
+	
+
+	// Collect media file information from paths into cache
+	for(std::list<std::string>::iterator i = paths.begin();
+			i != paths.end(); i++)
+	{
+		std::string mediapath = *i;
+		std::vector<fs::DirListNode> dirlist = fs::GetDirListing(mediapath);
+		for(u32 j=0; j<dirlist.size(); j++){
+			if(dirlist[j].dir) // Ignode dirs
+				continue;
+			std::string filename = dirlist[j].name;
+			// If name contains illegal characters, ignore the file
+			if(!string_allowed(filename, TEXTURENAME_ALLOWED_CHARS)){
+				infostream<<"Client: ignoring illegal file name: \""
+						<<filename<<"\""<<std::endl;
+				continue;
+			}
+			// If name is not in a supported format, ignore it
+			const char *supported_ext[] = {
+				".png", ".jpg", ".bmp", ".tga",
+				".pcx", ".ppm", ".psd", ".wal", ".rgb",
+				".ogg",
+				".x", ".b3d", ".md2", ".obj",
+				NULL
+			};
+			if(removeStringEnd(filename, supported_ext) == ""){
+				infostream<<"Client: ignoring unsupported file extension: \""
+						<<filename<<"\""<<std::endl;
+				continue;
+			}
+			// Ok, attempt to load the file and add to cache
+			std::string filepath = mediapath + DIR_DELIM + filename;
+			// Read data
+			std::ifstream fis(filepath.c_str(), std::ios_base::binary);
+			if(fis.good() == false){
+				errorstream<<"Client::cacheLocalMedia(): Could not open \""
+						<<filename<<"\" for reading"<<std::endl;
+				continue;
+			}
+			std::ostringstream tmp_os(std::ios_base::binary);
+			bool bad = false;
+			for(;;){
+				char buf[1024];
+				fis.read(buf, 1024);
+				std::streamsize len = fis.gcount();
+				tmp_os.write(buf, len);
+				if(fis.eof())
+					break;
+				if(!fis.good()){
+					bad = true;
+					break;
+				}
+			}
+			if(bad){
+				errorstream<<"Client::cacheLocalMedia(): Failed to read \""
+						<<filename<<"\""<<std::endl;
+				continue;
+			}
+			if(tmp_os.str().length() == 0){
+				errorstream<<"Client::cacheLocalMedia(): Empty file \""
+						<<filepath<<"\""<<std::endl;
+				continue;
+			}
+
+			loadMedia(tmp_os.str(),filename);
+		}
+	}
+	
+}
 /*
 	u16 command
 	u16 number of files requested
@@ -1288,6 +1373,17 @@ void Client::ProcessData(u8 *data, u32 datasize, u16 sender_peer_id)
 		{
 			is.read((char*)buf, 2);
 			message += (wchar_t)readU16(buf);
+		}
+		//FOZ - ping when playername is mentioned
+		LocalPlayer *player = m_env.getLocalPlayer();
+		assert(player != NULL);
+		std::wstring name = narrow_to_wide(player->getName());
+
+		std::string::size_type found = message.find(name);
+		if (found!=std::string::npos)
+		{
+			message += L" [found players name]";
+			m_sound->playSound(SimpleSoundSpec("client_message_received"), false);
 		}
 
 		m_chat_queue.push_back(message);
